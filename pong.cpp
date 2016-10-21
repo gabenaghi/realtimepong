@@ -105,7 +105,7 @@ void ball_move()
 
     while (1)
     {
-        Thread.signal_wait(BALL_SIGNAL);
+        Thread::signal_wait(BALL_SIGNAL);
 
         //increment x position
         ball_posx += ball_x_vel;
