@@ -2,16 +2,23 @@
 #include "rtos.h"
 
 //these are likely wrong. change experimentally.
-#define PADDLE_MAX 60
-#define PADDLE_MIN 0
+
 #define BOARD_WIDTH 60
 #define BOARD_HEIGHT 30
+
 #define PADDLE_HEIGHT 5
+#define PADDLE_WIDTH 6
+#define PADDLE_MAX BOARD_WIDTH - PADDLE_WIDTH
+#define PADDLE_MIN 0
+
+#define BALL_SIDE_LENGTH 5
 
 #define INITIAL_BALL_TIME 0.5f
 
-#define FPS 20.0f
-#define REFRSH_TIME 1/FPS
+#define SCREEN_REFRSH_MS 50
+#define SCREEN_REFRESH_SIGNAL 0x01
+
+#define BALL_MOVE_MS 200
 
 
 //globals
@@ -21,10 +28,34 @@ InterruptIn left_button(p6);
 int ball_posx, ball_posy;
 int paddle_pos;
 int ball_x_vel, ball_y_vel;
+
+/*
 bool didMove = false;
 bool paddir = false;
 
-float ball_pause_time = INITIAL_BALL_TIME;
+
+void paddleMoved(bool whichWay, bool moved ){
+    if(whichWay==false && moved ==true){
+        pc.printf("leftMoved\n");
+    }
+    if(whichWay==true && moved ==true){
+        pc.printf("rightMoved\n");
+    }
+    didMove = false;
+}
+*/
+
+
+void collision()
+{
+    ball_x_vel++;
+    ball_y_vel++;
+}
+
+/**********************/
+/*Screen Refresh Stuff*/
+/**********************/
+Thread screen_thread(osPriorityLow);
 
 void report_paddle()
 {
@@ -36,47 +67,45 @@ void report_ball()
     pc.printf("b%02d,%02d\n", ball_posx, ball_posy);
 }
 
-void move_paddle_right()
-{
-    //pc.printf("move_right");
-
-    if ( paddle_pos <  PADDLE_MAX){
-        paddle_pos ++;
-    }
-    didMove = true;
-    paddir = true;
-
-}
-void paddleMoved(bool whichWay, bool moved ){
-    if(whichWay==false && moved ==true){
-        pc.printf("leftMoved\n");
-    }
-    if(whichWay==true && moved ==true){
-        pc.printf("rightMoved\n");
-    }
-    didMove = false;
-}
-
-void move_paddle_left()
-{
-    //pc.printf("move_left");
-    if ( paddle_pos > PADDLE_MIN ){
-        paddle_pos --;
-    }
-    didMove = true;
-    paddir = false;
-}
-
 void update_board()
 {
     report_paddle();
     report_ball();   
 }
 
-void collision(){
-        ball_x_vel++;
-        ball_y_vel++;
-    }
+void signal_refresh()
+{
+     screen_thread.signal_set(SCREEN_REFRESH_SIGNAL);
+}
+
+void screen_update_thread()
+{
+        RtosTimer screen_refresh_timer(signal_refresh);
+        screen_refresh_timer.start(SCREEN_REFRSH_MS);
+        while (1)
+        {
+            Thread::signal_wait(SCREEN_REFRESH_SIGNAL);
+            update_board();
+        }
+    
+}
+/**********************/
+
+/***********************/
+/*Game Logic Interrupts*/
+/***********************/
+
+void move_paddle_right()
+{
+    if ( paddle_pos <  PADDLE_MAX)
+        paddle_pos ++;
+}
+
+void move_paddle_left()
+{
+    if ( paddle_pos > PADDLE_MIN )
+        paddle_pos --;
+}
 
 void ball_move()
 {
@@ -107,53 +136,39 @@ void ball_move()
 
 }
 
-
-
-Thread ball_thread(osPriorityNormal);
-Thread screen_thread(osPriorityNormal);
-
-void signal_refresh()
-{
-     screen_thread.signal_set(0x01);
-}
-
-void screen_update_thread()
-{
-        RtosTimer screen_refresh_timer(signal_refresh);
-        screen_refresh_timer.start(50);
-        while (1)
-        {
-            Thread::signal_wait(0x01);
-            update_board();
-        }
-    
-}
-
+/**********************/
 
 int main()
 { 
+    // low priority thread manages screen refreshes @ constant rate
     screen_thread.start(screen_update_thread);
-/*
-    // attach isrs to the interrupt pins    
-    right_button.rise(move_paddle_right);
-    left_button.rise(move_paddle_left);
 
     //initialize ball and paddle positions
     ball_posx = BOARD_WIDTH / 2;
     ball_posy = BOARD_HEIGHT / 2;
     paddle_pos = BOARD_WIDTH / 2;
-    
+
+    //this is garbage
+    ball_x_vel = 1;
+    ball_y_vel = 1;
+    /*  
     //generate random ball angle
     //TODO: think of a better random vel function
     ball_x_vel = rand()%2+1;
     ball_y_vel = rand()%2+1;
+    */
 
-    
+    // attach isrs to the interrupt pins    
+    right_button.rise(move_paddle_right);
+    left_button.rise(move_paddle_left);
 
-    ball_thread.start(ball_move);
-*/
+    RtosTimer ball_move_timer(ball_move);
+    ball_move_timer.start(BALL_MOVE_MS);
+
+
     while(1){
-        paddleMoved(paddir,didMove);
+        Thread::yield();
+        //paddleMoved(paddir,didMove);
 
     };
 }
