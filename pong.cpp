@@ -12,10 +12,9 @@
 #define PADDLE_MIN 0
 
 #define BALL_SIDE_LENGTH 5
+#define BALL_SIGNAL 0x02
 
-#define INITIAL_BALL_TIME 0.5f
-
-#define SCREEN_REFRSH_MS 50
+#define SCREEN_REFRSH_MS 100
 #define SCREEN_REFRESH_SIGNAL 0x01
 
 #define BALL_MOVE_MS 200
@@ -28,6 +27,8 @@ InterruptIn left_button(p6);
 int ball_posx, ball_posy;
 int paddle_pos;
 int ball_x_vel, ball_y_vel;
+Thread screen_thread(osPriorityNormal);
+Thread ball_thread(osPriorityNormal);
 
 /*
 bool didMove = false;
@@ -45,17 +46,9 @@ void paddleMoved(bool whichWay, bool moved ){
 }
 */
 
-
-void collision()
-{
-    ball_x_vel++;
-    ball_y_vel++;
-}
-
 /**********************/
 /*Screen Refresh Stuff*/
 /**********************/
-Thread screen_thread(osPriorityLow);
 
 void report_paddle()
 {
@@ -89,12 +82,61 @@ void screen_update_thread()
         }
     
 }
-/**********************/
 
 /***********************/
-/*Game Logic Interrupts*/
+/*   Ball Move Logic   */
 /***********************/
 
+void signal_ball_move()
+{
+    ball_thread.signal_set(BALL_SIGNAL);
+}
+
+void collision()
+{
+    ball_x_vel++;
+    ball_y_vel++;
+}
+
+void ball_move()
+{
+    RtosTimer ball_move_timer(signal_ball_move);
+    ball_move_timer.start(BALL_MOVE_MS);
+
+    while (1)
+    {
+        Thread.signal_wait(BALL_SIGNAL);
+
+        //increment x position
+        ball_posx += ball_x_vel;
+        ball_posx += ball_y_vel;
+
+        //check and adjust if x out of bounds
+        if (ball_posx > BOARD_WIDTH){
+            ball_posx = BOARD_WIDTH - (ball_posx - BOARD_WIDTH);
+            ball_x_vel = -1 * ball_x_vel;
+        }
+        if (ball_posx < 0 ){
+            ball_posx = -1 * ball_posx;
+            ball_x_vel = -1 * ball_x_vel;
+        }
+
+        //check and adjust if y out of bounds
+        //also the case for when you lose the game
+        if (ball_posy > BOARD_HEIGHT-PADDLE_HEIGHT){
+            ball_posy = BOARD_HEIGHT - (ball_posy - BOARD_HEIGHT);
+            ball_y_vel = -1 * ball_y_vel;
+        }
+        if (ball_posy < 0 ){
+            ball_posy = -1 * ball_posy;
+            ball_y_vel = -1 * ball_y_vel;
+        }
+    }
+}
+
+/***********************/
+/*   Push Button ISRs  */
+/***********************/
 void move_paddle_right()
 {
     if ( paddle_pos <  PADDLE_MAX)
@@ -106,37 +148,6 @@ void move_paddle_left()
     if ( paddle_pos > PADDLE_MIN )
         paddle_pos --;
 }
-
-void ball_move()
-{
-    //increment x position
-    ball_posx += ball_x_vel;
-    ball_posx += ball_y_vel;
-
-    //check and adjust if x out of bounds
-    if (ball_posx > BOARD_WIDTH){
-        ball_posx = BOARD_WIDTH - (ball_posx - BOARD_WIDTH);
-        ball_x_vel = -1 * ball_x_vel;
-    }
-    if (ball_posx < 0 ){
-        ball_posx = -1 * ball_posx;
-        ball_x_vel = -1 * ball_x_vel;
-    }
-
-    //check and adjust if y out of bounds
-    //also the case for when you lose the game
-    if (ball_posy > BOARD_HEIGHT-PADDLE_HEIGHT){
-        ball_posy = BOARD_HEIGHT - (ball_posy - BOARD_HEIGHT);
-        ball_y_vel = -1 * ball_y_vel;
-    }
-    if (ball_posy < 0 ){
-        ball_posy = -1 * ball_posy;
-        ball_y_vel = -1 * ball_y_vel;
-    }
-
-}
-
-/**********************/
 
 int main()
 { 
@@ -158,17 +169,15 @@ int main()
     ball_y_vel = rand()%2+1;
     */
 
+    ball_thread.start(ball_move);
+
     // attach isrs to the interrupt pins    
     right_button.rise(move_paddle_right);
     left_button.rise(move_paddle_left);
 
-    RtosTimer ball_move_timer(ball_move);
-    ball_move_timer.start(BALL_MOVE_MS);
-
 
     while(1){
-        Thread::yield();
-        //paddleMoved(paddir,didMove);
-
-    };
+        // should sleep forever
+        Thread::signal_wait(0);
+    }
 }
