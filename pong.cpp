@@ -12,10 +12,7 @@
 #define BALL_LEFT false
 #define BALL_DOWN false
 
-#define INITIAL_BALL_TIME 0.5f
-
-#define FPS 20.0f
-#define REFRSH_TIME 1/FPS
+#define BALL_MIN BOARD_HEIGHT - 1
 
 
 //globals
@@ -25,12 +22,10 @@ InterruptIn left_button(p6);
 int ball_posx, ball_posy;
 int paddle_pos;
 int ball_x_vel, ball_y_vel;
-Mutex padlock;
+
 //Threads
 Thread ball_thread(osPriorityNormal);
 Thread screen_thread(osPriorityNormal);
-
-float ball_pause_time = INITIAL_BALL_TIME;
 
 void report_paddle()
 {
@@ -52,7 +47,6 @@ void move_paddle_right()
 
 void move_paddle_left()
 {
-    //pc.printf("move_left");
     if ( paddle_pos > PADDLE_MIN ){
         paddle_pos--;
     }
@@ -61,10 +55,8 @@ void move_paddle_left()
 
 void update_board()
 {
-    //padlock.lock();
     report_paddle();
     report_ball();
-    //padlock.unlock();
     ball_thread.signal_set(0x01);
 }
 
@@ -73,31 +65,26 @@ void update_ball(){
         ball_posy += ball_y_vel;
 }
 //makes proper adjustment for collisions for neg. & pos. numbers
-void collision(){
+void collision()
+{
         ball_x_vel = (ball_x_vel<=0)? (ball_x_vel--):(ball_x_vel++);
         ball_y_vel = (ball_y_vel<=0)? (ball_y_vel--):(ball_y_vel++);
-    }
+}
 
 void ball_move()
-{ while(1){
+{
+    while(1)
+    {
         //Waits on screen thread to say that its drawn the board before proceeding
         Thread::signal_wait(0x01);
         //collision check
         //padlock.lock();
-        if((ball_posy == (BOARD_HEIGHT-PADDLE_HEIGHT)) && (ball_posx>= (paddle_pos- 2))&& (ball_posx<= (paddle_pos+2))){
-            collision();
-            ball_posy = BOARD_HEIGHT-PADDLE_HEIGHT -1;
-            ball_y_vel*=-1;
-            update_ball();
-            //break;
-        }
-        //padlock.unlock();
+        update_ball();
 
         //hits right wall, reverse x direction
         if (ball_posx > BOARD_WIDTH){
             ball_posx = BOARD_WIDTH - (ball_posx - BOARD_WIDTH);
             ball_x_vel = -1 * ball_x_vel;
-
         }
         //hits left wall, reverse x direction
         if (ball_posx <= 0 ){
@@ -109,13 +96,35 @@ void ball_move()
         if (ball_posy < 0 ){
             ball_posy = -1 * ball_posy;
             ball_y_vel = -1 * ball_y_vel;
-
         }
 
-        update_ball();
-         //lost game
-        if (ball_posy > BOARD_HEIGHT-PADDLE_HEIGHT){
-            pc.printf("q\n");
+        //came from in bounds and now out of bounds
+        if((ball_posy - ball_y_vel < BALL_MIN) && (ball_posy >= BALL_MIN)) //now out of bounds
+        {
+            if ( (ball_posx >= paddle_pos - 2) && (ball_posx <= (paddle_pos + 2)))
+            {
+                collision();
+                ball_posy = BALL_MIN - (ball_posy - BALL_MIN );
+                ball_y_vel*=-1;
+            }
+            else
+            {
+                //lost game
+                pc.printf("q\n");
+
+                //reset
+                //initialize ball and paddle positions
+                ball_posx = BOARD_WIDTH / 2;
+                ball_posy = BOARD_HEIGHT / 2;
+                paddle_pos = BOARD_WIDTH / 2;
+
+                //generate random ball angle
+                ball_x_vel = (rand() % 2 == 0) ? 1 : -1;
+                ball_y_vel = (rand() % 2 == 0) ? 1 : -1;
+                Thread::wait(5000);
+            }
+
+
         }
     }
 }
@@ -148,10 +157,8 @@ void screen_update_thread()
 
 int main()
 {
-      //gives you five seconds to start the game after resetting mbed
-
-     Thread::wait(5000);
-
+    //gives you five seconds to start the game after resetting mbed
+    Thread::wait(1000);
 
     // attach isrs to the interrupt pins
     right_button.rise(move_paddle_right);
@@ -159,19 +166,17 @@ int main()
 
     //initialize ball and paddle positions
     ball_posx = BOARD_WIDTH / 2;
-    ball_posy = BOARD_HEIGHT-5;
+    ball_posy = BOARD_HEIGHT / 2;
     paddle_pos = BOARD_WIDTH / 2;
 
     //generate random ball angle
-    //TODO: think of a better random vel function
-    ball_x_vel = 1;
-    ball_y_vel = -1;
-
+    ball_x_vel = (rand() % 2 == 0) ? 1 : -1;
+    ball_y_vel = (rand() % 2 == 0) ? 1 : -1;
 
     ball_thread.start(ball_move);
     screen_thread.start(screen_update_thread);
     while(1){
-        //paddleMoved(paddir,didMove);
-
+        //sleep forever
+        Thread::signal_wait(0x04);
     };
 }
